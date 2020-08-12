@@ -2,8 +2,7 @@
 
 # Othello Gym Environment
 
-This repository contains an implementation of [Othello](https://en.wikipedia.org/wiki/Othello) with OpenAI Gym interfaces, we allow users to specify various board sizes.  
-This environment is for researchers and engineers who are interested in developing model-based RL algorithms.
+This repository contains an implementation of [Othello](https://en.wikipedia.org/wiki/Othello) with OpenAI Gym interfaces, we allow users to specify various board sizes. This environment is for researchers and engineers who are interested in developing model-based RL algorithms.
 
 To benchmark your RL agent, we provide several simple baselines:
 1. Random policy
@@ -51,7 +50,7 @@ If you read along each column, the numbers become `loses / draws / wins` for the
 | <b>Maximin (depth=3)</b> | 78 / 3 / 19 | 66 / 4 / 30 | 66 / 4 / 30       | 63 / 2 / 35       | 46 / 1 / 53       |
 
 Things worth noticing from the results:
-1. From the diagonal entries, when the two sides are equally strong the second player (white) has an advantage in Othello.
+1. From the diagonal entries, it seems that when the two sides are equally strong white has an advantage in Othello.
 2. **Maximin (depth==1)** is equivalent to **Greedy**, they thus have the same scores.
 3. The deeper one searches in **Maximin**, the better the performance. However, more computation is required too.
 This can be improved by [pruning](https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning) (not included in this repo).
