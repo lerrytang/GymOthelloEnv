@@ -1,20 +1,18 @@
 """Othello environments for reinforcement learning."""
 
-import enum
 import gym
 from gym import spaces
 from gym.envs.classic_control import rendering
 import pyglet
 from pyglet import gl
 import numpy as np
-import time
 
 BLACK_DISK = -1
 NO_DISK = 0
 WHITE_DISK = 1
 
 IMAGE_SIZE = 96
-MAX_INT = (1<<31)
+MAX_INT = (1 << 31)
 
 WINDOW_H = 480
 WINDOW_W = 480
@@ -31,6 +29,8 @@ class OthelloEnv(gym.Env):
                  black_policy=None,
                  protagonist=WHITE_DISK,
                  board_size=8,
+                 initial_rand_steps=0,
+                 seed=0,
                  sudden_death_on_invalid_move=True,
                  render_in_step=False):
 
@@ -39,6 +39,9 @@ class OthelloEnv(gym.Env):
         self.observation_space = self.env.observation_space
         self.action_space = self.env.action_space
         self.render_in_step = render_in_step
+        self.initial_rand_steps = initial_rand_steps
+        self.rand_step_cnt = 0
+        self.rnd = np.random.RandomState(seed=seed)
 
         # Initialize policies.
         self.protagonist = protagonist
@@ -48,6 +51,7 @@ class OthelloEnv(gym.Env):
             self.opponent = black_policy
 
     def reset(self):
+        self.rand_step_cnt = 0
         obs = self.env.reset()
 
         # This provides the opponent a chance to get env.possible_moves.
@@ -67,6 +71,12 @@ class OthelloEnv(gym.Env):
 
     def step(self, action):
         assert self.env.player_turn == self.protagonist
+
+        if self.rand_step_cnt < self.initial_rand_steps:
+            ix = self.rnd.randint(0, len(self.possible_moves))
+            action = self.possible_moves[ix]
+            self.rand_step_cnt += 1
+
         obs, reward, done, _ = self.env.step(action)  # My move.
         if self.render_in_step:
             self.render()
@@ -99,26 +109,30 @@ class OthelloBaseEnv(gym.Env):
 
     metadata = {'render.modes': ['np_array', 'human']}
 
-    def __init__(self, board_size=8, sudden_death_on_invalid_move=True):
+    def __init__(self,
+                 board_size=8,
+                 sudden_death_on_invalid_move=True,
+                 mute=False):
+
+        # Initialize members from configs.
+        self.board_size = max(4, board_size)
+        self.sudden_death_on_invalid_move = sudden_death_on_invalid_move
+        self.board_state = self._reset_board()
+        self.viewer = None
+        self.mute = mute  # Log msgs can be misleading when planning with model.
 
         # Initialize internal states.
-        self.board_size = max(4, board_size)
-        self.board_state = self._reset_board()
-        self.player_turn = WHITE_DISK
+        self.player_turn = BLACK_DISK
         self.winner = NO_DISK
-        self.possible_moves = []
-        self.sudden_death_on_invalid_move = sudden_death_on_invalid_move
-        self.viewer = None
         self.terminated = False
+        self.possible_moves = []
 
-        # Initialize action space:
-        #   One action for each board position, a policy losses immediately
-        #   if it tries to place a disk on an invalid position.
+        # Initialize action space: one action for each board position.
         self.action_space = spaces.Discrete(self.board_size ** 2)
 
         # Initialize observation space.
-        self.observation_space = spaces.Box(np.zeros([self.board_size] * 2),
-                                            np.ones([self.board_size] * 2))
+        self.observation_space = spaces.Box(
+            np.zeros([self.board_size] * 2), np.ones([self.board_size] * 2))
 
     def _reset_board(self):
         board_state = np.zeros([self.board_size] * 2, dtype=int)
@@ -131,13 +145,13 @@ class OthelloBaseEnv(gym.Env):
 
     def reset(self):
         self.board_state = self._reset_board()
-        self.player_turn = WHITE_DISK
+        self.player_turn = BLACK_DISK
         self.winner = NO_DISK
         self.terminated = False
         self.possible_moves = self.get_possible_actions()
         return self.get_observation()
 
-    def is_valid_position(self, board, x, y, delta_x, delta_y):
+    def get_num_killed_enemy(self, board, x, y, delta_x, delta_y):
         # We overload WHITE_DISK to be our disk, and BLACK_DISK to be enemies.
         # (x, y) is a valid position if the following pattern exists:
         #    "(x, y), BLACK_DISK, ..., BLACK_DISK, WHITE_DISK"
@@ -145,39 +159,40 @@ class OthelloBaseEnv(gym.Env):
         next_x = x + delta_x
         next_y = y + delta_y
 
-        # The neibor must be an enemy.
-        if (next_x < 0 or
-            next_x >= self.board_size or
-            next_y < 0 or
-            next_y >= self.board_size or
-            board[next_x][next_y] != BLACK_DISK
+        # The neighbor must be an enemy.
+        if (
+                next_x < 0 or
+                next_x >= self.board_size or
+                next_y < 0 or
+                next_y >= self.board_size or
+                board[next_x][next_y] != BLACK_DISK
         ):
             return 0
 
         # Keep scanning in the direction.
         cnt = 0
-        while (next_x >= 0 and
-               next_x < self.board_size and
-               next_y >= 0 and
-               next_y < self.board_size and
-               board[next_x][next_y] == BLACK_DISK
+        while (
+                0 <= next_x < self.board_size and
+                0 <= next_y < self.board_size and
+                board[next_x][next_y] == BLACK_DISK
         ):
             next_x += delta_x
             next_y += delta_y
             cnt += 1
 
-        if (next_x < 0 or
-            next_x >= self.board_size or
-            next_y < 0 or
-            next_y >= self.board_size or
-            board[next_x][next_y] != WHITE_DISK
+        if (
+                next_x < 0 or
+                next_x >= self.board_size or
+                next_y < 0 or
+                next_y >= self.board_size or
+                board[next_x][next_y] != WHITE_DISK
         ):
             return 0
         else:
             return cnt
 
     def get_possible_actions(self, board=None):
-        actions=[]
+        actions = []
         if board is None:
             if self.player_turn == WHITE_DISK:
                 board = self.board_state
@@ -187,14 +202,23 @@ class OthelloBaseEnv(gym.Env):
         for row_ix in range(self.board_size):
             for col_ix in range(self.board_size):
                 if board[row_ix][col_ix] == NO_DISK:
-                    if (self.is_valid_position(board, row_ix, col_ix, 1, 1) or
-                        self.is_valid_position(board, row_ix, col_ix, 1, 0) or
-                        self.is_valid_position(board, row_ix, col_ix, 1, -1) or
-                        self.is_valid_position(board, row_ix, col_ix, 0, 1) or
-                        self.is_valid_position(board, row_ix, col_ix, 0, -1) or
-                        self.is_valid_position(board, row_ix, col_ix, -1, 1) or
-                        self.is_valid_position(board, row_ix, col_ix, -1, 0) or
-                        self.is_valid_position(board, row_ix, col_ix, -1, -1)
+                    if (
+                            self.get_num_killed_enemy(
+                                board, row_ix, col_ix, 1, 1) or
+                            self.get_num_killed_enemy(
+                                board, row_ix, col_ix, 1, 0) or
+                            self.get_num_killed_enemy(
+                                board, row_ix, col_ix, 1, -1) or
+                            self.get_num_killed_enemy(
+                                board, row_ix, col_ix, 0, 1) or
+                            self.get_num_killed_enemy(
+                                board, row_ix, col_ix, 0, -1) or
+                            self.get_num_killed_enemy(
+                                board, row_ix, col_ix, -1, 1) or
+                            self.get_num_killed_enemy(
+                                board, row_ix, col_ix, -1, 0) or
+                            self.get_num_killed_enemy(
+                                board, row_ix, col_ix, -1, -1)
                     ):
                         actions.append(row_ix * self.board_size + col_ix)
         return actions
@@ -233,59 +257,60 @@ class OthelloBaseEnv(gym.Env):
             self.board_state = np.array(-board_state)
 
     def update_board(self, action):
-       x = action // self.board_size
-       y = action % self.board_size
+        x = action // self.board_size
+        y = action % self.board_size
 
-       if self.player_turn == BLACK_DISK:
-           self.board_state = -self.board_state
+        if self.player_turn == BLACK_DISK:
+            self.board_state = -self.board_state
 
-       for delta_x in [-1, 0, 1]:
-           for delta_y in [-1, 0, 1]:
-               if not (delta_x == 0 and delta_y == 0):
-                   kill_cnt = self.is_valid_position(
-                       self.board_state, x, y, delta_x, delta_y)
-                   for i in range(kill_cnt):
-                       dx = (i + 1) * delta_x
-                       dy = (i + 1) * delta_y
-                       self.board_state[x + dx][y + dy] = WHITE_DISK
-       self.board_state[x][y] = WHITE_DISK
+        for delta_x in [-1, 0, 1]:
+            for delta_y in [-1, 0, 1]:
+                if not (delta_x == 0 and delta_y == 0):
+                    kill_cnt = self.get_num_killed_enemy(
+                        self.board_state, x, y, delta_x, delta_y)
+                    for i in range(kill_cnt):
+                        dx = (i + 1) * delta_x
+                        dy = (i + 1) * delta_y
+                        self.board_state[x + dx][y + dy] = WHITE_DISK
+        self.board_state[x][y] = WHITE_DISK
 
-       if self.player_turn == BLACK_DISK:
-           self.board_state = -self.board_state
+        if self.player_turn == BLACK_DISK:
+            self.board_state = -self.board_state
 
     def step(self, action):
+
+        # Apply action.
+        if self.terminated:
+            raise ValueError('Game has terminated!')
         if action not in self.possible_moves:
-            if self.sudden_death_on_invalid_move:
-                print('Invalid position')
-                if self.player_turn == WHITE_DISK:
-                    print('BLACK wins')
-                    self.winner = BLACK_DISK
-                else:
-                    print('WHITE wins')
-                    self.winner = WHITE_DISK
-                done = True
-                self.terminated = True
-            else:
-                done = False
+            invalid_action = True
         else:
+            invalid_action = False
+        if not invalid_action:
             self.update_board(action)
-            num_vacant_positions = (self.board_state == NO_DISK).sum()
-            done = num_vacant_positions == 0
-            if done:
-                self.winner = self.determine_winner()
+
+        # Determine if game should terminate.
+        num_vacant_positions = (self.board_state == NO_DISK).sum()
+        no_more_vacant_places = num_vacant_positions == 0
+        done = ((self.sudden_death_on_invalid_move and invalid_action) or
+                no_more_vacant_places)
 
         current_player = self.player_turn
-        if not done:
+        if done:
+            # If game has terminated, determine winner.
+            self.winner = self.determine_winner(rule_violation=invalid_action)
+        else:
+            # If game continues, determine who moves next.
             self.set_player_turn(-self.player_turn)
             if len(self.possible_moves) == 0:
                 self.set_player_turn(-self.player_turn)
                 if len(self.possible_moves) == 0:
-                    print('No more possibe moves.')
-                    done = True
+                    if not self.mute:
+                        print('No possible moves for either party.')
                     self.winner = self.determine_winner()
 
         reward = self.winner * current_player
-        return self.get_observation(), reward, done, None
+        return self.get_observation(), reward, self.terminated, None
 
     def set_player_turn(self, turn):
         self.player_turn = turn
@@ -296,19 +321,35 @@ class OthelloBaseEnv(gym.Env):
         black_cnt = (self.board_state == BLACK_DISK).sum()
         return white_cnt, black_cnt
 
-    def determine_winner(self):
-        white_cnt, black_cnt = self.count_disks()
-        print('white: {}, black: {}'.format(white_cnt, black_cnt))
+    def determine_winner(self, rule_violation=False):
         self.terminated = True
-        if white_cnt > black_cnt:
-            print('WHITE wins')
-            return WHITE_DISK
-        elif black_cnt > white_cnt:
-            print('BLACK wins')
-            return BLACK_DISK
+        if rule_violation:
+            if not self.mute:
+                print('sudden death due to rule violation')
+            if self.player_turn == WHITE_DISK:
+                if not self.mute:
+                    print('BLACK wins')
+                return BLACK_DISK
+            else:
+                if not self.mute:
+                    print('WHITE wins')
+                return WHITE_DISK
         else:
-            print('DRAW')
-            return NO_DISK
+            white_cnt, black_cnt = self.count_disks()
+            if not self.mute:
+                print('white: {}, black: {}'.format(white_cnt, black_cnt))
+            if white_cnt > black_cnt:
+                if not self.mute:
+                    print('WHITE wins')
+                return WHITE_DISK
+            elif black_cnt > white_cnt:
+                if not self.mute:
+                    print('BLACK wins')
+                return BLACK_DISK
+            else:
+                if not self.mute:
+                    print('DRAW')
+                return NO_DISK
 
     def render(self, mode='human', close=False):
         if close:
@@ -367,7 +408,7 @@ class OthelloBaseEnv(gym.Env):
                 elif self.board_state[i][j] == BLACK_DISK:
                     gl.glColor4f(0, 0, 0, 1.)
                 if self.board_state[i][j] != NO_DISK:
-                    disk = self._make_disk_at(
+                    disk = make_disk_at(
                         x=i * grid_width + half_grid_width,
                         y=j * grid_width + half_grid_width,
                         radius=half_grid_width - 3)
@@ -383,23 +424,25 @@ class OthelloBaseEnv(gym.Env):
         for p in self.possible_moves:
             i = p // self.board_size
             j = p % self.board_size
-            x=i * grid_width + half_grid_width
-            y=j * grid_width + half_grid_width
-            disk = self._make_disk_at(
+            x = i * grid_width + half_grid_width
+            y = j * grid_width + half_grid_width
+            disk = make_disk_at(
                 x=x, y=y, radius=half_grid_width - 3, filled=False)
             disk.render1()
             label = pyglet.text.Label('{}'.format(i * self.board_size + j),
-                font_name='Times New Roman', font_size=10, color=font_color,
-                x=x, y=y, anchor_x='center', anchor_y='center')
+                                      font_name='Times New Roman', font_size=10,
+                                      color=font_color,
+                                      x=x, y=y, anchor_x='center',
+                                      anchor_y='center')
             label.draw()
 
-    def _make_disk_at(self, x, y, radius, res=30, filled=True):
-        points = []
-        for i in range(res):
-            ang = 2 * np.pi * i / res
-            points.append((np.cos(ang)*radius + x, np.sin(ang)*radius + y))
-        if filled:
-            return rendering.FilledPolygon(points)
-        else:
-            return rendering.PolyLine(points, True)
 
+def make_disk_at(x, y, radius, res=30, filled=True):
+    points = []
+    for i in range(res):
+        ang = 2 * np.pi * i / res
+        points.append((np.cos(ang) * radius + x, np.sin(ang) * radius + y))
+    if filled:
+        return rendering.FilledPolygon(points)
+    else:
+        return rendering.PolyLine(points, True)
