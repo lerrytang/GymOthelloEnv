@@ -41,18 +41,18 @@ Policies (protagonist) in the first column plays black, those in the header row 
 Therefore, if you read along each row, numbers in the cell are `wins / draws / loses` for the policy on the left.  
 If you read along each column, the numbers become `loses / draws / wins` for the policy at the top.
 
-|                          | Random      | Greedy      | Maximin (depth=1) | Maximin (depth=2) | Maximin (depth=3) |
+|                          | Random      | Greedy      | Maximin-1 | Maximin-2 | Maximin-3 |
 |--------------------------|-------------|-------------|-------------------|-------------------|-------------------|
 | <b>Random</b>            | 48 / 6 / 46 | 38 / 1 / 61 | 38 / 1 / 61       | 32 / 4 / 64       | 13 / 2 / 85       |
 | <b>Greedy</b>            | 61 / 5 / 34 | 42 / 4 / 54 | 42 / 4 / 54       | 27 / 3 / 70       | 25 / 1 / 74       |
-| <b>Maximin (depth=1)</b> | 61 / 5 / 34 | 42 / 4 / 54 | 42 / 4 / 54       | 27 / 3 / 70       | 25 / 1 / 74       |
-| <b>Maximin (depth=2)</b> | 72 / 1 / 27 | 67 / 1 / 32 | 67 / 1 / 32       | 35 / 1 / 64       | 33 / 2 / 65       |
-| <b>Maximin (depth=3)</b> | 78 / 3 / 19 | 66 / 4 / 30 | 66 / 4 / 30       | 63 / 2 / 35       | 46 / 1 / 53       |
+| <b>Maximin-1</b> | 61 / 5 / 34 | 42 / 4 / 54 | 42 / 4 / 54       | 27 / 3 / 70       | 25 / 1 / 74       |
+| <b>Maximin-2</b> | 72 / 1 / 27 | 67 / 1 / 32 | 67 / 1 / 32       | 35 / 1 / 64       | 33 / 2 / 65       |
+| <b>Maximin-3</b> | 78 / 3 / 19 | 66 / 4 / 30 | 66 / 4 / 30       | 63 / 2 / 35       | 46 / 1 / 53       |
 
 Things worth noticing from the results:
 1. From the diagonal entries, it seems that when the two sides are equally strong white has an advantage in Othello.
-2. **Maximin (depth==1)** is equivalent to **Greedy**, they thus have the same scores.
-3. The deeper one searches in **Maximin**, the better the performance. However, more computation is required too.
+2. **Maximin-1** is equivalent to **Greedy**, they thus have the same scores.
+3. The deeper one searches in **Maximin** (the number in the name indicates search depth), the better the performance. However, more computation is required too.
 This can be improved by [pruning](https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning) (not included in this repo).
 
 ## Citation
