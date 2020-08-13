@@ -26,6 +26,7 @@ def play(protagonist,
          opponent_search_depth=1,
          rand_seed=0,
          env_init_rand_steps=0,
+         num_disk_as_reward=False,
          render=True):
     print('protagonist: {}'.format(protagonist_agent_type))
     print('opponent: {}'.format(opponent_agent_type))
@@ -59,6 +60,7 @@ def play(protagonist,
                              board_size=board_size,
                              seed=rand_seed,
                              initial_rand_steps=env_init_rand_steps,
+                             num_disk_as_reward=num_disk_as_reward,
                              render_in_step=render_in_step and render)
 
     win_cnts = draw_cnts = lose_cnts = 0
@@ -75,12 +77,29 @@ def play(protagonist,
             if render:
                 env.render()
             if done:
-                if reward == 1:
-                    win_cnts += 1
-                elif reward == 0:
-                    draw_cnts += 1
+                print('reward={}'.format(reward))
+                if num_disk_as_reward:
+                    total_disks = board_size ** 2
+                    if protagonist == 1:
+                        white_cnts = reward
+                        black_cnts = total_disks - white_cnts
+                    else:
+                        black_cnts = reward
+                        white_cnts = total_disks - black_cnts
+
+                    if white_cnts > black_cnts:
+                        win_cnts += 1
+                    elif white_cnts == black_cnts:
+                        draw_cnts += 1
+                    else:
+                        lose_cnts += 1
                 else:
-                    lose_cnts += 1
+                    if reward == 1:
+                        win_cnts += 1
+                    elif reward == 0:
+                        draw_cnts += 1
+                    else:
+                        lose_cnts += 1
                 print('-' * 3)
     print('#Wins: {}, #Draws: {}, #Loses: {}'.format(
         win_cnts, draw_cnts, lose_cnts))
@@ -95,6 +114,8 @@ if __name__ == '__main__':
     parser.add_argument('--opponent', default='rand',
                         choices=['rand', 'greedy', 'maximin', 'human'])
     parser.add_argument('--protagonist-plays-white', default=False,
+                        action='store_true')
+    parser.add_argument('--num-disk-as-reward', default=False,
                         action='store_true')
     parser.add_argument('--board-size', default=8, type=int)
     parser.add_argument('--protagonist-search-depth', default=1, type=int)
@@ -118,5 +139,6 @@ if __name__ == '__main__':
          opponent_search_depth=args.opponent_search_depth,
          rand_seed=args.rand_seed,
          env_init_rand_steps=args.init_rand_steps,
+         num_disk_as_reward=args.num_disk_as_reward,
          render=not args.no_render)
 

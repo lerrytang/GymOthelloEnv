@@ -32,16 +32,23 @@ class OthelloEnv(gym.Env):
                  initial_rand_steps=0,
                  seed=0,
                  sudden_death_on_invalid_move=True,
-                 render_in_step=False):
+                 render_in_step=False,
+                 num_disk_as_reward=False):
 
         # Create the inner environment.
-        self.env = OthelloBaseEnv(board_size, sudden_death_on_invalid_move)
+        self.board_size = board_size
+        self.num_disk_as_reward = num_disk_as_reward
+        self.env = OthelloBaseEnv(
+            board_size=board_size,
+            num_disk_as_reward=self.num_disk_as_reward,
+            sudden_death_on_invalid_move=sudden_death_on_invalid_move)
         self.observation_space = self.env.observation_space
         self.action_space = self.env.action_space
         self.render_in_step = render_in_step
         self.initial_rand_steps = initial_rand_steps
         self.rand_step_cnt = 0
-        self.rnd = np.random.RandomState(seed=seed)
+        self.rand_seed = seed
+        self.rnd = np.random.RandomState(seed=self.rand_seed)
 
         # Initialize policies.
         self.protagonist = protagonist
@@ -50,6 +57,11 @@ class OthelloEnv(gym.Env):
         else:
             self.opponent = black_policy
 
+    def seed(self, seed=None):
+        if seed is not None:
+            self.rand_seed = seed
+            self.rnd = np.random.RandomState(seed=self.rand_seed)
+
     def reset(self):
         self.rand_step_cnt = 0
         obs = self.env.reset()
@@ -57,6 +69,8 @@ class OthelloEnv(gym.Env):
         # This provides the opponent a chance to get env.possible_moves.
         if hasattr(self.opponent, 'reset'):
             self.opponent.reset(self)
+            if hasattr(self.opponent, 'seed'):
+                self.opponent.seed(self.rand_seed)
 
         if self.env.player_turn == self.protagonist:
             return obs
@@ -82,12 +96,20 @@ class OthelloEnv(gym.Env):
             self.render()
         if done:
             return obs, reward, done, None
+
         while not done and self.env.player_turn != self.protagonist:
             opponent_move = self.opponent.get_action(obs)
             obs, reward, done, _ = self.env.step(opponent_move)
             if self.render_in_step:
                 self.render()
-        return obs, -reward, done, None
+        if self.num_disk_as_reward:
+            if done:
+                reward = self.board_size ** 2 - reward
+            else:
+                reward = 0
+        else:
+            reward = -reward
+        return obs, reward, done, None
 
     def render(self, mode='human', close=False):
         self.env.render(mode=mode, close=close)
@@ -112,6 +134,7 @@ class OthelloBaseEnv(gym.Env):
     def __init__(self,
                  board_size=8,
                  sudden_death_on_invalid_move=True,
+                 num_disk_as_reward=False,
                  mute=False):
 
         # Initialize members from configs.
@@ -119,6 +142,7 @@ class OthelloBaseEnv(gym.Env):
         self.sudden_death_on_invalid_move = sudden_death_on_invalid_move
         self.board_state = self._reset_board()
         self.viewer = None
+        self.num_disk_as_reward = num_disk_as_reward
         self.mute = mute  # Log msgs can be misleading when planning with model.
 
         # Initialize internal states.
@@ -292,13 +316,13 @@ class OthelloBaseEnv(gym.Env):
         # Determine if game should terminate.
         num_vacant_positions = (self.board_state == NO_DISK).sum()
         no_more_vacant_places = num_vacant_positions == 0
-        done = ((self.sudden_death_on_invalid_move and invalid_action) or
-                no_more_vacant_places)
+        sudden_death = invalid_action and self.sudden_death_on_invalid_move
+        done = sudden_death or no_more_vacant_places
 
         current_player = self.player_turn
         if done:
             # If game has terminated, determine winner.
-            self.winner = self.determine_winner(rule_violation=invalid_action)
+            self.winner = self.determine_winner(sudden_death=sudden_death)
         else:
             # If game continues, determine who moves next.
             self.set_player_turn(-self.player_turn)
@@ -309,7 +333,19 @@ class OthelloBaseEnv(gym.Env):
                         print('No possible moves for either party.')
                     self.winner = self.determine_winner()
 
-        reward = self.winner * current_player
+        reward = 0
+        if self.terminated:
+            if self.num_disk_as_reward:
+                if sudden_death:
+                    reward = 0  # Strongly discourage invalid actions.
+                else:
+                    white_cnt, black_cnt = self.count_disks()
+                    if current_player == WHITE_DISK:
+                        reward = white_cnt
+                    else:
+                        reward = black_cnt
+            else:
+                reward = self.winner * current_player
         return self.get_observation(), reward, self.terminated, None
 
     def set_player_turn(self, turn):
@@ -321,9 +357,9 @@ class OthelloBaseEnv(gym.Env):
         black_cnt = (self.board_state == BLACK_DISK).sum()
         return white_cnt, black_cnt
 
-    def determine_winner(self, rule_violation=False):
+    def determine_winner(self, sudden_death=False):
         self.terminated = True
-        if rule_violation:
+        if sudden_death:
             if not self.mute:
                 print('sudden death due to rule violation')
             if self.player_turn == WHITE_DISK:

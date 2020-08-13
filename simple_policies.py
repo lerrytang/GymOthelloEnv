@@ -31,6 +31,9 @@ class RandomPolicy(object):
         else:
             self.env = env
 
+    def seed(self, seed):
+        self.rnd = np.random.RandomState(seed=seed)
+
     def get_action(self, obs):
         possible_moves = self.env.possible_moves
         ix = self.rnd.randint(0, len(possible_moves))
