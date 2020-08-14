@@ -102,14 +102,7 @@ class OthelloEnv(gym.Env):
             obs, reward, done, _ = self.env.step(opponent_move)
             if self.render_in_step:
                 self.render()
-        if self.num_disk_as_reward:
-            if done:
-                reward = self.board_size ** 2 - reward
-            else:
-                reward = 0
-        else:
-            reward = -reward
-        return obs, reward, done, None
+        return obs, -reward, done, None
 
     def render(self, mode='human', close=False):
         self.env.render(mode=mode, close=close)
@@ -337,13 +330,18 @@ class OthelloBaseEnv(gym.Env):
         if self.terminated:
             if self.num_disk_as_reward:
                 if sudden_death:
-                    reward = 0  # Strongly discourage invalid actions.
+                    # Strongly discourage invalid actions.
+                    reward = -(self.board_size ** 2)
                 else:
                     white_cnt, black_cnt = self.count_disks()
                     if current_player == WHITE_DISK:
-                        reward = white_cnt
+                        reward = white_cnt - black_cnt
+                        if black_cnt == 0:
+                            reward = self.board_size ** 2
                     else:
-                        reward = black_cnt
+                        reward = black_cnt - white_cnt
+                        if white_cnt == 0:
+                            reward = self.board_size ** 2
             else:
                 reward = self.winner * current_player
         return self.get_observation(), reward, self.terminated, None
