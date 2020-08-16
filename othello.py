@@ -46,9 +46,10 @@ class OthelloEnv(gym.Env):
         self.action_space = self.env.action_space
         self.render_in_step = render_in_step
         self.initial_rand_steps = initial_rand_steps
-        self.rand_step_cnt = 0
         self.rand_seed = seed
         self.rnd = np.random.RandomState(seed=self.rand_seed)
+        self.max_rand_steps = 0
+        self.rand_step_cnt = 0
 
         # Initialize policies.
         self.protagonist = protagonist
@@ -61,16 +62,19 @@ class OthelloEnv(gym.Env):
         if seed is not None:
             self.rand_seed = seed
             self.rnd = np.random.RandomState(seed=self.rand_seed)
+            if self.opponent is not None and hasattr(self.opponent, 'seed'):
+                self.opponent.seed(self.rand_seed)
 
     def reset(self):
-        self.rand_step_cnt = 0
         obs = self.env.reset()
+        self.max_rand_steps = self.rnd.randint(
+            low=0, high=self.initial_rand_steps // 2 + 1) * 2
+        self.rand_step_cnt = 0
+        print('The initial {} steps will be random'.format(self.max_rand_steps))
 
         # This provides the opponent a chance to get env.possible_moves.
         if hasattr(self.opponent, 'reset'):
             self.opponent.reset(self)
-            if hasattr(self.opponent, 'seed'):
-                self.opponent.seed(self.rand_seed)
 
         if self.env.player_turn == self.protagonist:
             return obs
@@ -86,7 +90,7 @@ class OthelloEnv(gym.Env):
     def step(self, action):
         assert self.env.player_turn == self.protagonist
 
-        if self.rand_step_cnt < self.initial_rand_steps:
+        if self.rand_step_cnt < self.max_rand_steps:
             ix = self.rnd.randint(0, len(self.possible_moves))
             action = self.possible_moves[ix]
             self.rand_step_cnt += 1
@@ -98,7 +102,12 @@ class OthelloEnv(gym.Env):
             return obs, reward, done, None
 
         while not done and self.env.player_turn != self.protagonist:
-            opponent_move = self.opponent.get_action(obs)
+            if self.rand_step_cnt < self.max_rand_steps:
+                ix = self.rnd.randint(0, len(self.possible_moves))
+                opponent_move = self.possible_moves[ix]
+                self.rand_step_cnt += 1
+            else:
+                opponent_move = self.opponent.get_action(obs)
             obs, reward, done, _ = self.env.step(opponent_move)
             if self.render_in_step:
                 self.render()
