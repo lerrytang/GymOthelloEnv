@@ -33,7 +33,8 @@ class OthelloEnv(gym.Env):
                  seed=0,
                  sudden_death_on_invalid_move=True,
                  render_in_step=False,
-                 num_disk_as_reward=False):
+                 num_disk_as_reward=False,
+                 possible_actions_in_obs=False):
 
         # Create the inner environment.
         self.board_size = board_size
@@ -41,7 +42,9 @@ class OthelloEnv(gym.Env):
         self.env = OthelloBaseEnv(
             board_size=board_size,
             num_disk_as_reward=self.num_disk_as_reward,
-            sudden_death_on_invalid_move=sudden_death_on_invalid_move)
+            sudden_death_on_invalid_move=sudden_death_on_invalid_move,
+            possible_actions_in_obs=possible_actions_in_obs,
+        )
         self.observation_space = self.env.observation_space
         self.action_space = self.env.action_space
         self.render_in_step = render_in_step
@@ -74,7 +77,10 @@ class OthelloEnv(gym.Env):
 
         # This provides the opponent a chance to get env.possible_moves.
         if hasattr(self.opponent, 'reset'):
-            self.opponent.reset(self)
+            try:
+                self.opponent.reset(self)
+            except TypeError:
+                pass
 
         if self.env.player_turn == self.protagonist:
             return obs
@@ -137,6 +143,7 @@ class OthelloBaseEnv(gym.Env):
                  board_size=8,
                  sudden_death_on_invalid_move=True,
                  num_disk_as_reward=False,
+                 possible_actions_in_obs=False,
                  mute=False):
 
         # Initialize members from configs.
@@ -146,6 +153,7 @@ class OthelloBaseEnv(gym.Env):
         self.viewer = None
         self.num_disk_as_reward = num_disk_as_reward
         self.mute = mute  # Log msgs can be misleading when planning with model.
+        self.possible_actions_in_obs = possible_actions_in_obs
 
         # Initialize internal states.
         self.player_turn = BLACK_DISK
@@ -157,8 +165,13 @@ class OthelloBaseEnv(gym.Env):
         self.action_space = spaces.Discrete(self.board_size ** 2)
 
         # Initialize observation space.
-        self.observation_space = spaces.Box(
-            np.zeros([self.board_size] * 2), np.ones([self.board_size] * 2))
+        if self.possible_actions_in_obs:
+            self.observation_space = spaces.Box(
+                np.zeros([2, ] + [self.board_size] * 2),
+                np.ones([2, ] + [self.board_size] * 2))
+        else:
+            self.observation_space = spaces.Box(
+                np.zeros([self.board_size] * 2), np.ones([self.board_size] * 2))
 
     def _reset_board(self):
         board_state = np.zeros([self.board_size] * 2, dtype=int)
@@ -270,17 +283,30 @@ class OthelloBaseEnv(gym.Env):
     def get_observation(self):
         if self.player_turn == WHITE_DISK:
             # White turn, we don't negate state since white=1.
-            return self.board_state
+            state = self.board_state
         else:
             # Black turn, we negate board state such that black=1.
-            return -self.board_state
+            state = -self.board_state
+        if self.possible_actions_in_obs:
+            grid_of_possible_moves = np.zeros(self.board_size ** 2, dtype=bool)
+            grid_of_possible_moves[self.possible_moves] = True
+            return np.concatenate([np.expand_dims(state, axis=0),
+                                   grid_of_possible_moves.reshape(
+                                       [1, self.board_size, self.board_size])],
+                                  axis=0)
+        else:
+            return state
 
     def set_board_state(self, board_state, perspective=WHITE_DISK):
         """Force setting the board state, necessary in model-based RL."""
-        if perspective == WHITE_DISK:
-            self.board_state = np.array(board_state)
+        if np.ndim(board_state) > 2:
+            state = board_state[0]
         else:
-            self.board_state = np.array(-board_state)
+            state = board_state
+        if perspective == WHITE_DISK:
+            self.board_state = np.array(state)
+        else:
+            self.board_state = -np.array(state)
 
     def update_board(self, action):
         x = action // self.board_size
