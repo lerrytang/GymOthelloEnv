@@ -1,4 +1,4 @@
-<img src="https://storage.googleapis.com/gcp_blog/img/OthelloBoard.png">  
+<img src="imgs/img_OthelloBoard.png">  
 
 # Othello Gym Environment
 
